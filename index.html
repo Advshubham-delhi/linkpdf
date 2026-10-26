@@ -50,7 +50,7 @@ input{font:inherit;color:inherit;background:var(--panel);border:1px solid var(--
 .phead .title{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600}
 .phead .pg{color:var(--mute);font-variant-numeric:tabular-nums;cursor:pointer;padding:4px 6px}
 .phead button{padding:4px 10px}
-.scroller{flex:1;min-height:0;overflow:auto;position:relative;background:var(--desk);touch-action:pan-x pan-y;overscroll-behavior:contain}
+.scroller{flex:1;min-height:0;overflow:auto;position:relative;background:var(--desk);touch-action:none;overscroll-behavior:contain}
 .pages{display:flex;flex-direction:column;align-items:center;gap:10px;padding:8px;min-width:min-content}
 .empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:var(--mute);text-align:center;padding:20px}
 .empty[hidden]{display:none}
@@ -112,6 +112,7 @@ details ol{padding-left:20px;margin:8px 0 0}
 
 <header id="top">
   <span class="brand">LinkPDF</span>
+  <button id="btnTouch" title="Switch if your stylus acts like a finger">Touch: scroll</button>
   <button id="btnLinks">Links <span id="linkCount">0</span></button>
   <button id="btnSync"><span id="syncDot"></span><span id="syncTxt">Drive</span></button>
   <button id="btnSettings">Settings</button>
@@ -236,6 +237,39 @@ async function loadDoc(key, name, data) {
   return (docs[key] = { key, name, pdf, sizes });
 }
 
+/* ---------- input: pen/mouse draw, fingers scroll (done in JS so the browser never steals pen strokes) ---------- */
+let touchDraw = false, penDown = false;
+function touchScroll(sc) {
+  let st = null, raf = 0;
+  sc.addEventListener('pointerdown', e => {
+    if (e.pointerType !== 'touch' || touchDraw || penDown) return;
+    cancelAnimationFrame(raf);
+    st = { id: e.pointerId, x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, t: performance.now(), vx: 0, vy: 0, moved: false };
+  });
+  sc.addEventListener('pointermove', e => {
+    if (!st || e.pointerId !== st.id) return;
+    if (penDown) { st = null; return; }
+    const now = performance.now(), dt = Math.max(1, now - st.t), dx = e.clientX - st.x, dy = e.clientY - st.y;
+    sc.scrollLeft -= dx; sc.scrollTop -= dy;
+    st.vx = 0.7 * st.vx + 0.3 * (dx / dt); st.vy = 0.7 * st.vy + 0.3 * (dy / dt);
+    st.x = e.clientX; st.y = e.clientY; st.t = now;
+    if (Math.hypot(e.clientX - st.sx, e.clientY - st.sy) > 8) st.moved = true;
+  });
+  const end = e => {
+    if (!st || e.pointerId !== st.id) return;
+    const s = st; st = null;
+    if (!s.moved) return;
+    sc._noClick = Date.now() + 350;
+    let vx = s.vx, vy = s.vy;
+    const step = () => {
+      sc.scrollLeft -= vx * 16; sc.scrollTop -= vy * 16; vx *= 0.95; vy *= 0.95;
+      if (Math.abs(vx) > 0.02 || Math.abs(vy) > 0.02) raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+  };
+  sc.addEventListener('pointerup', end); sc.addEventListener('pointercancel', end);
+}
+
 /* ================= PDF pane ================= */
 function inkHit(strokes, pt, R) {
   for (const q of strokes) {
@@ -299,10 +333,7 @@ class PdfPane {
       if (this.raf) return;
       this.raf = requestAnimationFrame(() => { this.raf = 0; this.updatePg(); });
     }, { passive: true });
-    sc.addEventListener('touchstart', e => this.tStart(e), { passive: false });
-    sc.addEventListener('touchmove', e => this.tMove(e), { passive: false });
-    sc.addEventListener('touchend', e => this.tEnd(e));
-    sc.addEventListener('touchcancel', e => this.tEnd(e));
+    touchScroll(sc);
     sc.addEventListener('pointerdown', e => this.mDown(e));
     sc.addEventListener('pointermove', e => this.mMove(e));
     sc.addEventListener('pointerup', e => this.mUp(e));
@@ -432,41 +463,29 @@ class PdfPane {
     return best;
   }
 
-  /* Apple Pencil (touch events, touchType === 'stylus') */
-  tStart(e) {
-    if (!this.doc || this.stroke) return;
-    const t = [...e.changedTouches].find(t => t.touchType === 'stylus'); if (!t) return;
-    const p = this.pageAt(t.clientX, t.clientY); if (!p || !p.rendered) return;
-    e.preventDefault();
-    this.begin(p, t.clientX, t.clientY, 'touch', t.identifier);
-  }
-  tMove(e) {
-    const s = this.stroke; if (!s || s.src !== 'touch') return;
-    e.preventDefault();
-    const t = [...e.changedTouches].find(t => t.identifier === s.tid); if (t) this.extend(t.clientX, t.clientY);
-  }
-  tEnd(e) {
-    const s = this.stroke; if (!s || s.src !== 'touch') return;
-    if ([...e.changedTouches].some(t => t.identifier === s.tid)) this.finish();
-  }
-  /* mouse / trackpad */
+  /* pen and mouse draw (touch too, when "Touch: draw" is on) */
   mDown(e) {
-    if (e.pointerType !== 'mouse' || e.button !== 0 || !this.doc) return;
+    if (!this.doc || this.stroke || e.button !== 0 || (e.pointerType === 'touch' && !touchDraw)) return;
     const p = this.pageAt(e.clientX, e.clientY); if (!p || !p.rendered) return;
     e.preventDefault(); try { this.scroller.setPointerCapture(e.pointerId); } catch {}
-    this.begin(p, e.clientX, e.clientY, 'mouse', e.pointerId);
+    this.begin(p, e.clientX, e.clientY, e.pointerType, e.pointerId);
   }
-  mMove(e) { const s = this.stroke; if (s && s.src === 'mouse' && s.tid === e.pointerId) this.extend(e.clientX, e.clientY); }
-  mUp(e) { const s = this.stroke; if (s && s.src === 'mouse' && s.tid === e.pointerId) this.finish(); }
+  mMove(e) {
+    const s = this.stroke; if (!s || s.tid !== e.pointerId) return;
+    const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
+    if (evs.length) evs.forEach(c => this.extend(c.clientX, c.clientY)); else this.extend(e.clientX, e.clientY);
+  }
+  mUp(e) { const s = this.stroke; if (s && s.tid === e.pointerId) this.finish(); }
   /* finger tap on an existing mark: jump to its note */
   onClick(e) {
-    if (this.suppress || !this.doc) return;
+    if (this.suppress || !this.doc || Date.now() < (this.scroller._noClick || 0)) return;
     const p = this.pageAt(e.clientX, e.clientY); if (!p) return;
     const hit = this.hitLink(p, this.toPage(p, e.clientX, e.clientY));
     if (hit) notebook.goToLink(hit);
   }
 
   begin(p, x, y, src, tid) {
+    penDown = true;
     this.stroke = { p, src, tid, pts: [this.toPage(p, x, y)], moved: false, sx: x, sy: y };
   }
   extend(x, y) {
@@ -486,7 +505,7 @@ class PdfPane {
     ctx.stroke();
   }
   finish() {
-    const s = this.stroke; if (!s) return; this.stroke = null;
+    const s = this.stroke; if (!s) return; this.stroke = null; penDown = false;
     this.suppress = true; setTimeout(() => { this.suppress = false; }, 350);
     if (!s.moved) {
       const hit = this.hitLink(s.p, s.pts[0]);
@@ -556,10 +575,7 @@ class Notebook {
     };
 
     const sc = this.scroller;
-    sc.addEventListener('touchstart', e => this.tStart(e), { passive: false });
-    sc.addEventListener('touchmove', e => this.tMove(e), { passive: false });
-    sc.addEventListener('touchend', e => this.tEnd(e));
-    sc.addEventListener('touchcancel', e => this.tEnd(e));
+    touchScroll(sc);
     sc.addEventListener('pointerdown', e => this.mDown(e));
     sc.addEventListener('pointermove', e => this.mMove(e));
     sc.addEventListener('pointerup', e => this.mUp(e));
@@ -669,35 +685,22 @@ class Notebook {
     return best;
   }
 
-  /* input: Apple Pencil (touch events, touchType === 'stylus') */
-  tStart(e) {
-    if (!this.doc || this.stroke) return;
-    const t = [...e.changedTouches].find(t => t.touchType === 'stylus'); if (!t) return;
-    const p = this.pageAt(t.clientX, t.clientY); if (!p) return;
-    e.preventDefault();
-    this.begin(p, t.clientX, t.clientY, 'touch', t.identifier);
-  }
-  tMove(e) {
-    const s = this.stroke; if (!s || s.src !== 'touch') return;
-    e.preventDefault();
-    const t = [...e.changedTouches].find(t => t.identifier === s.tid); if (t) this.extend(t.clientX, t.clientY);
-  }
-  tEnd(e) {
-    const s = this.stroke; if (!s || s.src !== 'touch') return;
-    if ([...e.changedTouches].some(t => t.identifier === s.tid)) this.finish();
-  }
-  /* input: mouse / trackpad */
+  /* input: pen and mouse draw (touch too, when "Touch: draw" is on) */
   mDown(e) {
-    if (e.pointerType !== 'mouse' || e.button !== 0 || !this.doc) return;
+    if (!this.doc || this.stroke || e.button !== 0 || (e.pointerType === 'touch' && !touchDraw)) return;
     const p = this.pageAt(e.clientX, e.clientY); if (!p) return;
     e.preventDefault(); try { this.scroller.setPointerCapture(e.pointerId); } catch {}
-    this.begin(p, e.clientX, e.clientY, 'mouse', e.pointerId);
+    this.begin(p, e.clientX, e.clientY, e.pointerType, e.pointerId);
   }
-  mMove(e) { const s = this.stroke; if (s && s.src === 'mouse' && s.tid === e.pointerId) this.extend(e.clientX, e.clientY); }
-  mUp(e) { const s = this.stroke; if (s && s.src === 'mouse' && s.tid === e.pointerId) this.finish(); }
+  mMove(e) {
+    const s = this.stroke; if (!s || s.tid !== e.pointerId) return;
+    const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
+    if (evs.length) evs.forEach(c => this.extend(c.clientX, c.clientY)); else this.extend(e.clientX, e.clientY);
+  }
+  mUp(e) { const s = this.stroke; if (s && s.tid === e.pointerId) this.finish(); }
   /* input: finger taps (placing a link or tapping a marker) */
   onClick(e) {
-    if (this.suppress || !this.doc) return;
+    if (this.suppress || !this.doc || Date.now() < (this.scroller._noClick || 0)) return;
     const p = this.pageAt(e.clientX, e.clientY); if (!p) return;
     const pt = this.toPage(p, e.clientX, e.clientY);
     if (this.placing) { this.placeAt(p, pt); return; }
@@ -705,6 +708,7 @@ class Notebook {
   }
 
   begin(p, x, y, src, tid) {
+    penDown = true;
     const mode = this.placing ? 'place' : this.tool.mode;
     const s = this.stroke = { p, src, tid, mode, pts: [this.toPage(p, x, y)], moved: false, sx: x, sy: y,
       c: this.tool.color, sz: SIZES[this.tool.size], erased: [] };
@@ -737,7 +741,7 @@ class Notebook {
     if (any) this.redrawPage(s.p);
   }
   finish() {
-    const s = this.stroke; if (!s) return; this.stroke = null;
+    const s = this.stroke; if (!s) return; this.stroke = null; penDown = false;
     this.suppress = true; setTimeout(() => { this.suppress = false; }, 350);
     if (s.mode === 'place') { if (!s.moved) this.placeAt(s.p, s.pts[0]); return; }
     if (s.mode === 'erase') { if (s.erased.length) { this.undoStack.push({ t: 'del', ids: s.erased }); this.touch(); } return; }
@@ -999,6 +1003,13 @@ document.querySelectorAll('dialog').forEach(d => {
   d.addEventListener('click', e => { if (e.target === d) d.close(); });
   d.querySelectorAll('.close').forEach(b => b.onclick = () => d.close());
 });
+
+$('#btnTouch').onclick = () => {
+  touchDraw = !touchDraw;
+  $('#btnTouch').classList.toggle('on', touchDraw);
+  $('#btnTouch').textContent = touchDraw ? 'Touch: draw' : 'Touch: scroll';
+  toast(touchDraw ? 'Touch now draws. Use this if your stylus acts like a finger. Switch back to scroll.' : 'Touch scrolls again', 3500);
+};
 
 /* ---------- boot ---------- */
 (async () => {
