@@ -1,0 +1,1049 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LinkPDF</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#1f5eff">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="LinkPDF">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="icon-192.png">
+
+<style>
+:root{
+  --desk:#cfd4da; --panel:#f7f8fa; --ink:#15181e; --mute:#5f6773; --line:#d9dde3;
+  --accent:#1f5eff; --accent-ink:#fff; --bar:#15181e; --bar-ink:#f2f4f7; --danger:#c0392b;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme:dark){
+  :root{--desk:#0d0f12; --panel:#1b1e24; --ink:#e7e9ed; --mute:#99a0ab; --line:#2a2e36;
+        --accent:#7c9bff; --accent-ink:#0a1020; --bar:#e7e9ed; --bar-ink:#15181e; --danger:#ff7b6b;}
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{display:flex;flex-direction:column;height:100dvh;background:var(--desk);color:var(--ink);
+  font:15px/1.4 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  padding-top:env(safe-area-inset-top,0px)}
+button{font:inherit;color:inherit;background:var(--panel);border:1px solid var(--line);border-radius:8px;
+  padding:7px 12px;cursor:pointer}
+button:hover{border-color:var(--mute)}
+button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button:disabled{opacity:.45;cursor:default}
+button.primary{background:var(--accent);color:var(--accent-ink);border-color:transparent}
+button.danger{color:var(--danger)}
+button.on{background:var(--accent);color:var(--accent-ink);border-color:transparent}
+input{font:inherit;color:inherit;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 10px;width:100%}
+
+#top{display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--panel);border-bottom:1px solid var(--line);flex-wrap:wrap}
+#top .brand{font-weight:700;letter-spacing:.01em;margin-right:auto}
+#syncDot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--mute);margin-right:6px}
+#syncDot.ok{background:#1f9d55}#syncDot.busy{background:#d99a00}#syncDot.err{background:var(--danger)}
+
+#panes{flex:1;min-height:0;display:flex;flex-direction:column;gap:6px;padding:6px}
+@media (min-aspect-ratio:1/1){#panes{flex-direction:row}}
+.pane{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;background:var(--panel);border-radius:10px;overflow:hidden;border:1px solid var(--line)}
+.phead{display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid var(--line)}
+.phead .title{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600}
+.phead .pg{color:var(--mute);font-variant-numeric:tabular-nums;cursor:pointer;padding:4px 6px}
+.phead button{padding:4px 10px}
+.scroller{flex:1;min-height:0;overflow:auto;position:relative;background:var(--desk);touch-action:none;overscroll-behavior:contain}
+.pages{display:flex;flex-direction:column;align-items:center;gap:10px;padding:8px;min-width:min-content}
+.empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:var(--mute);text-align:center;padding:20px}
+.empty[hidden]{display:none}
+.empty small{max-width:270px}
+
+.page{position:relative;background:#fff;flex:none;box-shadow:0 1px 4px rgba(0,0,0,.25)}
+.page canvas{display:block}
+.pdfpane .scroller{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+.pdfpane .page canvas.ink{position:absolute;left:0;top:0;pointer-events:none}
+button[hidden]{display:none}
+.phead .cancel{color:var(--danger)}
+@media (prefers-reduced-motion:reduce){.mk.flash{animation:none}}
+
+/* notebook */
+.nbpane .scroller{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+.nbpane .page canvas{position:absolute;inset:0}
+.tools{display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:6px 8px;border-bottom:1px solid var(--line)}
+.tools button{padding:5px 10px}
+.sw{width:30px;height:30px;border-radius:50%;padding:0;background:var(--c);border:2px solid var(--panel);box-shadow:0 0 0 1px var(--line)}
+.sw.on{box-shadow:0 0 0 3px var(--accent);background:var(--c)}
+.banner{padding:8px 10px;background:var(--accent);color:var(--accent-ink);font-weight:600}
+.banner[hidden]{display:none}
+.nbpane.placing .scroller{outline:3px solid var(--accent);outline-offset:-3px}
+.nbpane.placing .page{cursor:crosshair}
+.nbpane.placing .phead{background:var(--accent);color:var(--accent-ink)}
+.marks{position:absolute;inset:0;pointer-events:none}
+.mk{position:absolute;width:22px;height:22px;margin:-11px 0 0 -11px;border-radius:50% 50% 50% 4px;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.45)}
+.mk.flash{animation:pop .5s ease-in-out 3}
+@keyframes pop{50%{transform:scale(1.7)}}
+.paper-lined .page.nb{background-image:repeating-linear-gradient(to bottom,transparent 0,transparent calc(var(--ls) - 1px),#c6d2e8 calc(var(--ls) - 1px),#c6d2e8 var(--ls));background-position:0 calc(var(--ls) * 1.5)}
+.paper-grid .page.nb{background-image:linear-gradient(#d3dbeb 1px,transparent 1px),linear-gradient(90deg,#d3dbeb 1px,transparent 1px);background-size:var(--ls) var(--ls)}
+
+#toast{position:fixed;left:50%;bottom:calc(16px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:50;background:var(--bar);color:var(--bar-ink);
+  padding:8px 14px;border-radius:999px;font-size:14px;max-width:92vw;opacity:0;pointer-events:none;transition:opacity .15s}
+#toast.on{opacity:1}
+
+dialog{border:0;border-radius:14px;padding:0;background:var(--panel);color:var(--ink);width:min(580px,94vw);max-height:88dvh}
+dialog::backdrop{background:rgba(0,0,0,.5)}
+.sheet{padding:16px;display:flex;flex-direction:column;gap:12px;overflow:auto;max-height:88dvh}
+.sheet h3{margin:0}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+.muted{color:var(--mute);font-size:13px;margin:0}
+code{background:var(--desk);padding:1px 5px;border-radius:4px;word-break:break-all}
+ul.list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+ul.list li{border:1px solid var(--line);border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:8px}
+ul.list li.pick{cursor:pointer}
+ul.list li.pick:hover{border-color:var(--accent)}
+.end{display:flex;gap:10px;align-items:flex-start}
+.end i{flex:none;width:10px;height:10px;border-radius:3px;margin-top:5px}
+.end div{display:flex;flex-direction:column;min-width:0}
+.end span{color:var(--mute);font-size:13px}
+details summary{cursor:pointer}
+details ol{padding-left:20px;margin:8px 0 0}
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+
+<header id="top">
+  <span class="brand">LinkPDF</span>
+  <button id="btnTouch" title="Switch if your stylus acts like a finger">Touch: scroll</button>
+  <button id="btnLinks">Links <span id="linkCount">0</span></button>
+  <button id="btnSync"><span id="syncDot"></span><span id="syncTxt">Drive</span></button>
+  <button id="btnSettings">Settings</button>
+</header>
+
+<main id="panes"></main>
+
+<div id="toast" role="status"></div>
+<input type="file" id="fileInput" accept="application/pdf" hidden>
+
+<dialog id="dlgOpen"><div class="sheet">
+  <h3>Open a PDF</h3>
+  <button id="openLocal">From this device</button>
+  <div id="driveBox" class="sheet" style="padding:0;gap:8px">
+    <button id="driveConnect">Connect Google Drive</button>
+    <div id="driveList" hidden style="display:flex;flex-direction:column;gap:8px">
+      <input id="driveQ" type="search" placeholder="Search your Drive PDFs">
+      <ul id="driveUl" class="list"></ul>
+    </div>
+  </div>
+  <div class="row"><button class="close">Close</button></div>
+</div></dialog>
+
+<dialog id="dlgLinks"><div class="sheet">
+  <h3>Links</h3>
+  <input id="linkQ" type="search" placeholder="Filter by text or file name">
+  <ul id="linkUl" class="list"></ul>
+  <div class="row"><button class="close">Close</button></div>
+</div></dialog>
+
+<dialog id="dlgSettings"><div class="sheet">
+  <h3>Settings</h3>
+  <label>Google OAuth client ID
+    <input id="cid" placeholder="1234-abc.apps.googleusercontent.com" autocomplete="off">
+  </label>
+  <p class="muted">Authorized JavaScript origin to register: <code id="origin"></code></p>
+  <div class="row">
+    <button id="saveCid" class="primary">Save</button>
+    <button id="signOut">Disconnect Drive</button>
+    <button id="exportBtn">Export backup</button>
+  </div>
+  <details>
+    <summary>Google setup steps</summary>
+    <ol class="muted">
+      <li>In Google Cloud Console, create a project and enable the Google Drive API.</li>
+      <li>OAuth consent screen: choose External, add your own Google account as a test user, and add the scopes <code>drive.readonly</code> and <code>drive.appdata</code>.</li>
+      <li>Credentials → Create credentials → OAuth client ID → Web application. Add the origin shown above.</li>
+      <li>Paste the client ID here, tap Save, then tap Drive in the top bar.</li>
+    </ol>
+    <p class="muted">This page must be served over https (or http://localhost). It will not sign in when opened as a local file.</p>
+  </details>
+  <div class="row"><button class="close">Close</button></div>
+</div></dialog>
+
+<script>
+'use strict';
+const $ = (s, r = document) => r.querySelector(s);
+const SCOPE = 'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.appdata';
+const LINKS_FILE = 'pdflinks.json';
+const A4 = 1.4142;
+const SIZES = [0.0016, 0.003, 0.0065], SIZE_NAMES = ['Fine', 'Medium', 'Bold'];
+const PAPERS = ['blank', 'lined', 'grid'];
+
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+  del(k) { try { localStorage.removeItem(k); } catch {} }
+};
+/* tiny IndexedDB key/value store (handwriting is too big for localStorage) */
+const idb = (() => {
+  let dbp;
+  const open = () => dbp || (dbp = new Promise((res, rej) => {
+    const r = indexedDB.open('linkpdf', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('kv');
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+  }));
+  return {
+    async get(k) { const db = await open(); return new Promise((res, rej) => { const q = db.transaction('kv').objectStore('kv').get(k); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); }); },
+    async set(k, v) { const db = await open(); return new Promise((res, rej) => { const t = db.transaction('kv', 'readwrite'); t.objectStore('kv').put(v, k); t.oncomplete = () => res(); t.onerror = () => rej(t.error); }); }
+  };
+})();
+
+function h(tag, props = {}, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (k.startsWith('on')) e[k] = v; else if (k === 'class') e.className = v; else e.setAttribute(k, v);
+  }
+  e.append(...kids); return e;
+}
+const trunc = (s, n) => s.length > n ? s.slice(0, n - 1) + '…' : s;
+const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+/* ---------- state ---------- */
+const state = { links: store.get('lp.links', []).filter(l => l.nb && l.doc && (l.ink || l.rects)) };
+let notebooks = {};           // docKey -> {pages, paper, ts, strokes:[]}
+let cfg = store.get('lp.cfg', { clientId: '' });
+let token = store.get('lp.tok', null);
+const docs = {};              // key -> {key,name,pdf,sizes}
+let pdfPane, notebook;
+let pending = null;           // mark drawn on the PDF, waiting for a spot in the notebook
+let fileTarget = null;
+let dirty = false, syncing = false, fileId = null;
+
+const activeLinks = () => state.links.filter(l => !l.del);
+const tokenValid = () => token && token.exp > Date.now() + 30000;
+
+let toastT;
+function toast(msg, ms = 2600) {
+  const t = $('#toast'); t.textContent = msg; t.classList.add('on');
+  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('on'), ms);
+}
+
+/* ---------- PDF loading ---------- */
+async function loadDoc(key, name, data) {
+  if (docs[key]) return docs[key];
+  const pdf = await pdfjsLib.getDocument({ data }).promise;
+  const sizes = await Promise.all(Array.from({ length: pdf.numPages }, (_, i) =>
+    pdf.getPage(i + 1).then(p => { const v = p.getViewport({ scale: 1 }); return [v.width, v.height]; })));
+  return (docs[key] = { key, name, pdf, sizes });
+}
+
+/* ---------- input: pen/mouse draw, fingers scroll (done in JS so the browser never steals pen strokes) ---------- */
+let touchDraw = false, penDown = false;
+function touchScroll(sc, owner) {
+  const ptr = new Map();            // fingers currently on the screen
+  let st = null, two = null, raf = 0;
+  const avg = () => { let x = 0, y = 0; ptr.forEach(p => { x += p.x; y += p.y; }); return [x / ptr.size, y / ptr.size]; };
+  sc.addEventListener('pointerdown', e => {
+    if (e.pointerType !== 'touch') return;
+    cancelAnimationFrame(raf);
+    ptr.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (touchDraw) {                // draw mode: a second finger turns the gesture into a scroll
+      if (ptr.size === 2) { owner.cancelStroke(); const a = avg(); two = { x: a[0], y: a[1] }; }
+      return;
+    }
+    if (penDown) return;
+    st = { id: e.pointerId, x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, t: performance.now(), vx: 0, vy: 0, moved: false };
+  });
+  sc.addEventListener('pointermove', e => {
+    const p = ptr.get(e.pointerId); if (p) { p.x = e.clientX; p.y = e.clientY; }
+    if (two && ptr.size >= 2) {
+      const a = avg(); sc.scrollLeft -= a[0] - two.x; sc.scrollTop -= a[1] - two.y; two.x = a[0]; two.y = a[1];
+      sc._noClick = Date.now() + 350; return;
+    }
+    if (!st || e.pointerId !== st.id) return;
+    if (penDown) { st = null; return; }
+    const now = performance.now(), dt = Math.max(1, now - st.t), dx = e.clientX - st.x, dy = e.clientY - st.y;
+    sc.scrollLeft -= dx; sc.scrollTop -= dy;
+    st.vx = 0.7 * st.vx + 0.3 * (dx / dt); st.vy = 0.7 * st.vy + 0.3 * (dy / dt);
+    st.x = e.clientX; st.y = e.clientY; st.t = now;
+    if (Math.hypot(e.clientX - st.sx, e.clientY - st.sy) > 8) st.moved = true;
+  });
+  const end = e => {
+    ptr.delete(e.pointerId);
+    if (ptr.size < 2) { if (two) sc._noClick = Date.now() + 350; two = null; }
+    if (!st || e.pointerId !== st.id) return;
+    const s = st; st = null;
+    if (!s.moved) return;
+    sc._noClick = Date.now() + 350;
+    let vx = s.vx, vy = s.vy;
+    const step = () => {
+      sc.scrollLeft -= vx * 16; sc.scrollTop -= vy * 16; vx *= 0.95; vy *= 0.95;
+      if (Math.abs(vx) > 0.02 || Math.abs(vy) > 0.02) raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+  };
+  sc.addEventListener('pointerup', end); sc.addEventListener('pointercancel', end);
+}
+
+/* ================= PDF pane ================= */
+function inkHit(strokes, pt, R) {
+  for (const q of strokes) {
+    if (q.length === 1) { if (Math.hypot(q[0][0] - pt[0], q[0][1] - pt[1]) < R * 1.2) return true; continue; }
+    for (let i = 0; i < q.length - 1; i++) if (segDist(q[i], q[i + 1], pt) < R) return true;
+    const f = q[0], l = q[q.length - 1];
+    if (Math.hypot(f[0] - l[0], f[1] - l[1]) < 0.06) {           // closed loop: tapping inside counts
+      let x0 = 9, y0 = 9, x1 = -9, y1 = -9;
+      for (const a of q) { x0 = Math.min(x0, a[0]); x1 = Math.max(x1, a[0]); y0 = Math.min(y0, a[1]); y1 = Math.max(y1, a[1]); }
+      if (pt[0] > x0 && pt[0] < x1 && pt[1] > y0 && pt[1] < y1) return true;
+    }
+  }
+  return false;
+}
+function paintInk(ctx, w, strokes, col) {
+  const lw = Math.max(2, 0.0042 * w);
+  for (const q of strokes) {
+    if (q.length === 1) {
+      ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(q[0][0] * w, q[0][1] * w, 10, 0, 6.2832); ctx.stroke();
+      ctx.beginPath(); ctx.arc(q[0][0] * w, q[0][1] * w, 3, 0, 6.2832); ctx.fill();
+    } else drawStroke(ctx, w, { pts: q, c: col, w: lw / w });
+  }
+}
+function paintLink(ctx, w, ph, l, hot) {
+  if (l.rects) {   // links made by the older text-selection version
+    ctx.fillStyle = hot ? 'rgba(255,106,0,.5)' : `hsla(${l.hue}, 90%, 60%, .4)`;
+    for (const r of l.rects) ctx.fillRect(r[0] * w, r[1] * ph, r[2] * w, r[3] * ph);
+  }
+  if (l.ink) paintInk(ctx, w, l.ink, hot ? '#ff6a00' : `hsl(${l.hue}, 90%, 45%)`);
+}
+
+class PdfPane {
+  constructor() {
+    this.doc = null; this.zoom = 1; this.pages = []; this.lastW = 0; this.flash = null; this.flashT = 0;
+    this.stroke = null; this.suppress = false;
+    const el = this.root = h('section', { class: 'pane pdfpane' });
+    el.innerHTML = `
+      <div class="phead">
+        <button class="open">Open</button>
+        <span class="title">PDF</span>
+        <button class="cancel" hidden>Cancel link</button>
+        <span class="pg" title="Go to page"></span>
+        <button class="zo" aria-label="Zoom out">−</button>
+        <button class="zi" aria-label="Zoom in">+</button>
+      </div>
+      <div class="scroller">
+        <div class="pages"></div>
+        <div class="empty"><div>Open a PDF to start</div><button class="open primary">Choose PDF</button>
+          <small>Draw on the PDF with Apple Pencil to mark something, then tap the notebook to link it. A quick tap marks a single point. Fingers scroll.</small></div>
+      </div>`;
+    this.titleEl = $('.title', el); this.pgEl = $('.pg', el); this.cancelBtn = $('.cancel', el);
+    this.scroller = $('.scroller', el); this.pagesEl = $('.pages', el); this.emptyEl = $('.empty', el);
+    el.querySelectorAll('.open').forEach(b => b.onclick = openDialog);
+    this.cancelBtn.onclick = cancelPending;
+    $('.zo', el).onclick = () => this.setZoom(this.zoom / 1.2);
+    $('.zi', el).onclick = () => this.setZoom(this.zoom * 1.2);
+    this.pgEl.onclick = () => { if (!this.doc) return; const v = parseInt(prompt('Go to page'), 10); if (v) this.goPage(Math.min(Math.max(v, 1), this.pages.length)); };
+    const sc = this.scroller;
+    sc.addEventListener('scroll', () => {
+      if (this.raf) return;
+      this.raf = requestAnimationFrame(() => { this.raf = 0; this.updatePg(); });
+    }, { passive: true });
+    touchScroll(sc, this);
+    sc.addEventListener('pointerdown', e => this.mDown(e));
+    sc.addEventListener('pointermove', e => this.mMove(e));
+    sc.addEventListener('pointerup', e => this.mUp(e));
+    sc.addEventListener('pointercancel', e => this.mUp(e));
+    sc.addEventListener('click', e => this.onClick(e));
+  }
+
+  show(doc) {
+    if (this.doc === doc) return;
+    this.doc = doc; this.build(); this.scroller.scrollTop = 0; onPdfChanged(doc);
+  }
+
+  build() {
+    this.io?.disconnect();
+    this.pagesEl.replaceChildren();
+    this.pages = [];
+    this.titleEl.textContent = this.doc.name;
+    this.emptyEl.hidden = true;
+    const w = (this.scroller.clientWidth || 600) - 16;
+    this.lastW = this.scroller.clientWidth;
+    this.scale = (w / this.doc.sizes[0][0]) * this.zoom;
+    this.io = new IntersectionObserver(es => es.forEach(e => {
+      const p = e.target._p;
+      if (e.isIntersecting) this.render(p); else this.unrender(p);
+    }), { root: this.scroller, rootMargin: '900px 0px' });
+    this.pages = this.doc.sizes.map(([pw, ph], i) => {
+      const el = h('div', { class: 'page', 'data-n': i + 1 });
+      const p = { n: i + 1, el, w: pw * this.scale, h: ph * this.scale, rendered: false, busy: false, token: 0, ictx: null };
+      el.style.width = p.w + 'px'; el.style.height = p.h + 'px';
+      el._p = p; this.pagesEl.append(el); this.io.observe(el);
+      return p;
+    });
+    this.updatePg();
+  }
+
+  async render(p) {
+    if (p.rendered || p.busy) return;
+    p.busy = true; const tok = ++p.token;
+    try {
+      const page = await this.doc.pdf.getPage(p.n);
+      if (tok !== p.token) return;
+      const vp = page.getViewport({ scale: this.scale });
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const canvas = h('canvas');
+      canvas.width = Math.floor(vp.width * dpr); canvas.height = Math.floor(vp.height * dpr);
+      canvas.style.width = vp.width + 'px'; canvas.style.height = vp.height + 'px';
+      p.task = page.render({ canvasContext: canvas.getContext('2d'), viewport: vp, transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : undefined });
+      await p.task.promise;
+      if (tok !== p.token) return;
+      const ink = h('canvas', { class: 'ink' });
+      ink.width = canvas.width; ink.height = canvas.height;
+      ink.style.width = canvas.style.width; ink.style.height = canvas.style.height;
+      p.ictx = ink.getContext('2d'); p.ictx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      p.el.replaceChildren(canvas, ink);
+      p.rendered = true;
+      this.drawInk(p);
+    } catch (e) {
+      if (e?.name !== 'RenderingCancelledException') console.error(e);
+    } finally { p.busy = false; }
+  }
+
+  unrender(p) {
+    if (!p.rendered && !p.busy) return;
+    if (this.stroke && this.stroke.p === p) return;
+    p.token++; try { p.task?.cancel(); } catch {}
+    p.el.querySelectorAll('canvas').forEach(c => { c.width = 0; });
+    p.el.replaceChildren(); p.rendered = false; p.ictx = null;
+  }
+
+  drawInk(p) {
+    if (!p.rendered) return;
+    const ctx = p.ictx; ctx.clearRect(0, 0, p.w, p.h);
+    const key = this.doc.key;
+    for (const l of activeLinks()) {
+      if (l.doc !== key || l.page !== p.n) continue;
+      paintLink(ctx, p.w, p.h, l, !!(this.flash && this.flash.id === l.id && this.flash.on));
+    }
+    if (pending && pending.doc === key && pending.page === p.n) paintInk(ctx, p.w, pending.ink, '#e69b00');
+  }
+  redraw() { this.pages.forEach(p => this.drawInk(p)); }
+
+  goPage(n) { const p = this.pages[n - 1]; if (p) this.scroller.scrollTo({ top: p.el.offsetTop - 8, behavior: 'smooth' }); }
+  focusLink(l) {
+    const p = this.pages[l.page - 1]; if (!p) return;
+    let y = 0;
+    if (l.ink) { y = 1e9; for (const q of l.ink) for (const a of q) y = Math.min(y, a[1]); y *= p.w; }
+    else if (l.rects) y = l.rects[0][1] * p.h;
+    this.scroller.scrollTo({ top: Math.max(0, p.el.offsetTop + y - 100), behavior: 'smooth' });
+    clearInterval(this.flashT); this.flash = { id: l.id, on: true }; this.redraw(); let k = 0;
+    this.flashT = setInterval(() => {
+      if (++k > 7) { clearInterval(this.flashT); this.flash = null; } else this.flash.on = !this.flash.on;
+      this.redraw();
+    }, 260);
+  }
+
+  updatePg() {
+    if (!this.doc) { this.pgEl.textContent = ''; return; }
+    const y = this.scroller.scrollTop + this.scroller.clientHeight * 0.35;
+    let n = 1; for (const p of this.pages) { if (p.el.offsetTop <= y) n = p.n; else break; }
+    this.pgEl.textContent = `${n} / ${this.pages.length}`;
+  }
+  getPos() {
+    const y = this.scroller.scrollTop;
+    for (const p of this.pages) if (p.el.offsetTop + p.h > y) return { i: p.n - 1, f: (y - p.el.offsetTop) / p.h };
+    return { i: 0, f: 0 };
+  }
+  relayout() {
+    if (!this.doc) return;
+    const pos = this.getPos(); this.build();
+    const p = this.pages[pos.i]; if (p) this.scroller.scrollTop = p.el.offsetTop + pos.f * p.h;
+  }
+  setZoom(z) { this.zoom = Math.min(3, Math.max(0.5, z)); this.relayout(); }
+
+  /* geometry: points are stored as (x / page width, y / page width) */
+  toPage(p, x, y) { const r = p.el.getBoundingClientRect(); return [(x - r.left) / r.width, (y - r.top) / r.width]; }
+  pageAt(x, y) {
+    const pe = document.elementFromPoint(x, y)?.closest('.page');
+    return pe && pe.closest('.pdfpane') === this.root ? pe._p : null;
+  }
+  hitLink(p, pt) {
+    const R = 22 / p.w, ny = pt[1] * p.w / p.h; let best = null;
+    for (const l of activeLinks()) {
+      if (l.doc !== this.doc.key || l.page !== p.n) continue;
+      if (l.rects && l.rects.some(q => pt[0] >= q[0] && pt[0] <= q[0] + q[2] && ny >= q[1] && ny <= q[1] + q[3])) best = l;
+      if (l.ink && inkHit(l.ink, pt, R)) best = l;
+    }
+    return best;
+  }
+
+  /* pen and mouse draw (touch too, when "Touch: draw" is on) */
+  mDown(e) {
+    if (!this.doc || this.stroke || e.button !== 0 || (e.pointerType === 'touch' && !touchDraw)) return;
+    const p = this.pageAt(e.clientX, e.clientY); if (!p || !p.rendered) return;
+    e.preventDefault(); try { this.scroller.setPointerCapture(e.pointerId); } catch {}
+    this.begin(p, e.clientX, e.clientY, e.pointerType, e.pointerId);
+  }
+  mMove(e) {
+    const s = this.stroke; if (!s || s.tid !== e.pointerId) return;
+    const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
+    if (evs.length) evs.forEach(c => this.extend(c.clientX, c.clientY)); else this.extend(e.clientX, e.clientY);
+  }
+  mUp(e) { const s = this.stroke; if (s && s.tid === e.pointerId) this.finish(); }
+  cancelStroke() { const s = this.stroke; if (!s) return; this.stroke = null; penDown = false; this.redraw(); }
+  /* finger tap on an existing mark: jump to its note */
+  onClick(e) {
+    if (this.suppress || !this.doc || Date.now() < (this.scroller._noClick || 0)) return;
+    const p = this.pageAt(e.clientX, e.clientY); if (!p) return;
+    const hit = this.hitLink(p, this.toPage(p, e.clientX, e.clientY));
+    if (hit) notebook.goToLink(hit);
+  }
+
+  begin(p, x, y, src, tid) {
+    penDown = true;
+    this.stroke = { p, src, tid, pts: [this.toPage(p, x, y)], moved: false, sx: x, sy: y };
+  }
+  extend(x, y) {
+    const s = this.stroke; if (!s) return;
+    if (!s.moved) { if (Math.hypot(x - s.sx, y - s.sy) < 2.5) return; s.moved = true; }
+    const pt = this.toPage(s.p, x, y), last = s.pts[s.pts.length - 1];
+    if (Math.hypot(pt[0] - last[0], pt[1] - last[1]) < 0.0012) return;
+    s.pts.push(pt); this.liveSeg(s);
+  }
+  liveSeg(s) {
+    const p = s.p, ctx = p.ictx, q = s.pts, n = q.length, w = p.w; if (!ctx || n < 2) return;
+    ctx.strokeStyle = '#e69b00'; ctx.lineWidth = Math.max(2, 0.0042 * w); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    const mid = (a, b) => [(a[0] + b[0]) / 2 * w, (a[1] + b[1]) / 2 * w];
+    ctx.beginPath();
+    if (n === 2) { ctx.moveTo(q[0][0] * w, q[0][1] * w); const m = mid(q[0], q[1]); ctx.lineTo(m[0], m[1]); }
+    else { const a = mid(q[n - 3], q[n - 2]), b = mid(q[n - 2], q[n - 1]); ctx.moveTo(a[0], a[1]); ctx.quadraticCurveTo(q[n - 2][0] * w, q[n - 2][1] * w, b[0], b[1]); }
+    ctx.stroke();
+  }
+  finish() {
+    const s = this.stroke; if (!s) return; this.stroke = null; penDown = false;
+    this.suppress = true; setTimeout(() => { this.suppress = false; }, 350);
+    if (!s.moved) {
+      const hit = this.hitLink(s.p, s.pts[0]);
+      if (hit) { notebook.goToLink(hit); return; }
+    }
+    markFromStroke(s);
+  }
+}
+
+/* ================= Notebook pane ================= */
+function segDist(a, b, p) {
+  const dx = b[0] - a[0], dy = b[1] - a[1], l2 = dx * dx + dy * dy;
+  let t = l2 ? ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l2 : 0; t = Math.max(0, Math.min(1, t));
+  return Math.hypot(p[0] - (a[0] + t * dx), p[1] - (a[1] + t * dy));
+}
+function drawStroke(ctx, w, st) {
+  const q = st.pts; if (!q.length) return;
+  ctx.strokeStyle = st.c; ctx.fillStyle = st.c; ctx.lineWidth = st.w * w; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.beginPath();
+  if (q.length === 1) { ctx.arc(q[0][0] * w, q[0][1] * w, Math.max(st.w * w / 2, 0.8), 0, 6.2832); ctx.fill(); return; }
+  ctx.moveTo(q[0][0] * w, q[0][1] * w);
+  for (let i = 1; i < q.length - 1; i++) ctx.quadraticCurveTo(q[i][0] * w, q[i][1] * w, (q[i][0] + q[i + 1][0]) / 2 * w, (q[i][1] + q[i + 1][1]) / 2 * w);
+  ctx.lineTo(q[q.length - 1][0] * w, q[q.length - 1][1] * w);
+  ctx.stroke();
+}
+
+class Notebook {
+  constructor() {
+    this.key = null; this.doc = null; this.nb = null; this.zoom = 1; this.pages = []; this.placing = false;
+    this.tool = { mode: 'pen', color: '#15181e', size: 1 };
+    this.stroke = null; this.undoStack = []; this.flashId = null; this.suppress = false; this.lastW = 0;
+    const el = this.root = h('section', { class: 'pane nbpane' });
+    el.innerHTML = `
+      <div class="phead">
+        <span class="title">Notes</span>
+        <button class="add">+ Page</button>
+        <button class="zo" aria-label="Zoom out">−</button>
+        <button class="zi" aria-label="Zoom in">+</button>
+      </div>
+      <div class="tools">
+        <button class="sw on" data-c="#15181e" style="--c:#15181e" aria-label="Black pen"></button>
+        <button class="sw" data-c="#1f5eff" style="--c:#1f5eff" aria-label="Blue pen"></button>
+        <button class="sw" data-c="#d6342a" style="--c:#d6342a" aria-label="Red pen"></button>
+        <button class="sz">Medium</button>
+        <button class="er">Eraser</button>
+        <button class="un">Undo</button>
+        <button class="pp">Blank</button>
+      </div>
+      <div class="scroller">
+        <div class="pages"></div>
+        <div class="empty"><div>Your notebook appears here</div><small>Open a PDF on the left. Each PDF gets its own blank notebook. Write with Apple Pencil.</small></div>
+      </div>`;
+    this.titleEl = $('.title', el);
+    this.scroller = $('.scroller', el); this.pagesEl = $('.pages', el); this.emptyEl = $('.empty', el);
+    $('.zo', el).onclick = () => this.setZoom(this.zoom / 1.2);
+    $('.zi', el).onclick = () => this.setZoom(this.zoom * 1.2);
+    $('.add', el).onclick = () => { if (this.doc) { this.addPage(); this.scroller.scrollTo({ top: this.scroller.scrollHeight, behavior: 'smooth' }); } };
+    el.querySelectorAll('.sw').forEach(b => b.onclick = () => { this.tool.mode = 'pen'; this.tool.color = b.dataset.c; this.syncTools(); });
+    this.szBtn = $('.sz', el); this.erBtn = $('.er', el); this.ppBtn = $('.pp', el);
+    this.szBtn.onclick = () => { this.tool.size = (this.tool.size + 1) % SIZES.length; this.tool.mode = 'pen'; this.syncTools(); };
+    this.erBtn.onclick = () => { this.tool.mode = this.tool.mode === 'erase' ? 'pen' : 'erase'; this.syncTools(); };
+    $('.un', el).onclick = () => this.doUndo();
+    this.ppBtn.onclick = () => {
+      if (!this.doc) return; this.ensureStored();
+      this.nb.paper = PAPERS[(PAPERS.indexOf(this.nb.paper) + 1) % PAPERS.length];
+      this.touch(); this.pagesEl.className = 'pages paper-' + this.nb.paper; this.syncTools();
+    };
+
+    const sc = this.scroller;
+    touchScroll(sc, this);
+    sc.addEventListener('pointerdown', e => this.mDown(e));
+    sc.addEventListener('pointermove', e => this.mMove(e));
+    sc.addEventListener('pointerup', e => this.mUp(e));
+    sc.addEventListener('pointercancel', e => this.mUp(e));
+    sc.addEventListener('click', e => this.onClick(e));
+    this.syncTools();
+  }
+
+  syncTools() {
+    this.root.querySelectorAll('.sw').forEach(b => b.classList.toggle('on', this.tool.mode === 'pen' && b.dataset.c === this.tool.color));
+    this.erBtn.classList.toggle('on', this.tool.mode === 'erase');
+    this.szBtn.textContent = SIZE_NAMES[this.tool.size];
+    this.ppBtn.textContent = this.nb ? this.nb.paper[0].toUpperCase() + this.nb.paper.slice(1) : 'Blank';
+  }
+
+  setDoc(doc) {
+    if (this.key === doc.key) return;
+    this.key = doc.key; this.doc = doc;
+    this.nb = notebooks[doc.key] || { pages: 3, paper: 'blank', ts: 0, strokes: [] };
+    this.undoStack = []; this.setPlacing(false); this.build(); this.syncTools();
+  }
+  rebind() { if (this.key && notebooks[this.key]) this.nb = notebooks[this.key]; }
+  refresh() { this.rebind(); this.relayout(); this.syncTools(); }
+  ensureStored() { if (this.key && !notebooks[this.key]) notebooks[this.key] = this.nb; }
+  touch() { this.ensureStored(); this.nb.ts = Date.now(); saveNbSoon(); dirty = true; scheduleSync(); }
+
+  setPlacing(on) { this.placing = on; this.root.classList.toggle('placing', on); this.setTitle(); }
+  setTitle() { this.titleEl.textContent = this.placing ? 'Tap where to link…' : (this.doc ? 'Notes · ' + this.doc.name : 'Notes'); }
+
+  build() {
+    this.io?.disconnect(); this.pagesEl.replaceChildren(); this.pages = [];
+    if (!this.doc) { this.emptyEl.hidden = false; return; }
+    this.emptyEl.hidden = true;
+    this.setTitle();
+    this.w = ((this.scroller.clientWidth || 600) - 16) * this.zoom;
+    this.lastW = this.scroller.clientWidth;
+    this.pagesEl.className = 'pages paper-' + this.nb.paper;
+    this.io = new IntersectionObserver(es => es.forEach(e => {
+      const p = e.target._p; if (e.isIntersecting) this.render(p); else this.unrender(p);
+    }), { root: this.scroller, rootMargin: '900px 0px' });
+    for (let i = 1; i <= this.nb.pages; i++) this.addPageEl(i);
+  }
+  addPageEl(n) {
+    const w = this.w, ht = w * A4;
+    const el = h('div', { class: 'page nb', 'data-n': n });
+    el.style.width = w + 'px'; el.style.height = ht + 'px'; el.style.setProperty('--ls', (w * 0.036) + 'px');
+    const p = { n, el, w, h: ht, rendered: false, token: 0, canvas: null, ctx: null };
+    el._p = p; this.pages.push(p); this.pagesEl.append(el); this.io.observe(el);
+  }
+  addPage() { this.nb.pages++; this.addPageEl(this.nb.pages); this.touch(); }
+
+  render(p) {
+    if (p.rendered) return;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const canvas = h('canvas');
+    canvas.width = Math.floor(p.w * dpr); canvas.height = Math.floor(p.h * dpr);
+    canvas.style.width = p.w + 'px'; canvas.style.height = p.h + 'px';
+    p.canvas = canvas; p.ctx = canvas.getContext('2d'); p.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    p.marks = h('div', { class: 'marks' });
+    p.el.replaceChildren(canvas, p.marks);
+    p.rendered = true;
+    this.redrawPage(p); this.drawMarks(p);
+  }
+  unrender(p) {
+    if (!p.rendered || (this.stroke && this.stroke.p === p)) return;
+    if (p.canvas) p.canvas.width = 0;
+    p.el.replaceChildren(); p.rendered = false; p.canvas = p.ctx = p.marks = null;
+  }
+  redrawPage(p) {
+    if (!p.rendered) return;
+    p.ctx.clearRect(0, 0, p.w, p.h);
+    for (const st of this.nb.strokes) if (!st.del && st.p === p.n) drawStroke(p.ctx, p.w, st);
+  }
+  drawMarks(p) {
+    if (!p.rendered) return;
+    p.marks.replaceChildren();
+    for (const l of activeLinks()) {
+      if (l.doc !== this.key || l.nb.page !== p.n) continue;
+      const m = h('div', { class: 'mk' + (this.flashId === l.id ? ' flash' : '') });
+      m.style.cssText = `left:${l.nb.x * p.w}px;top:${l.nb.y * p.w}px;background:hsl(${l.hue} 90% 55%)`;
+      p.marks.append(m);
+    }
+  }
+  renderMarks() { this.pages.forEach(p => this.drawMarks(p)); }
+
+  goToLink(l) {
+    if (l.doc !== this.key) return;
+    while (this.nb.pages < l.nb.page) this.addPage();
+    const p = this.pages[l.nb.page - 1]; if (!p) return;
+    this.scroller.scrollTo({ top: Math.max(0, p.el.offsetTop + l.nb.y * p.w - 120), behavior: 'smooth' });
+    this.flashId = l.id; this.renderMarks();
+    setTimeout(() => { this.flashId = null; this.renderMarks(); }, 2200);
+  }
+
+  /* geometry helpers */
+  toPage(p, x, y) { const r = p.el.getBoundingClientRect(); return [(x - r.left) / r.width, (y - r.top) / r.width]; }
+  pageAt(x, y) {
+    const pe = document.elementFromPoint(x, y)?.closest('.page.nb');
+    return pe && pe.closest('.nbpane') === this.root ? pe._p : null;
+  }
+  hitMark(p, pt) {
+    const R = 26 / p.w; let best = null, bd = R;
+    for (const l of activeLinks()) {
+      if (l.doc !== this.key || l.nb.page !== p.n) continue;
+      const d = Math.hypot(l.nb.x - pt[0], l.nb.y - pt[1]); if (d < bd) { bd = d; best = l; }
+    }
+    return best;
+  }
+
+  /* input: pen and mouse draw (touch too, when "Touch: draw" is on) */
+  mDown(e) {
+    if (!this.doc || this.stroke || e.button !== 0 || (e.pointerType === 'touch' && !touchDraw)) return;
+    const p = this.pageAt(e.clientX, e.clientY); if (!p) return;
+    e.preventDefault(); try { this.scroller.setPointerCapture(e.pointerId); } catch {}
+    this.begin(p, e.clientX, e.clientY, e.pointerType, e.pointerId);
+  }
+  mMove(e) {
+    const s = this.stroke; if (!s || s.tid !== e.pointerId) return;
+    const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
+    if (evs.length) evs.forEach(c => this.extend(c.clientX, c.clientY)); else this.extend(e.clientX, e.clientY);
+  }
+  mUp(e) { const s = this.stroke; if (s && s.tid === e.pointerId) this.finish(); }
+  cancelStroke() { const s = this.stroke; if (!s) return; this.stroke = null; penDown = false; this.redrawPage(s.p); }
+  /* input: finger taps (placing a link or tapping a marker) */
+  onClick(e) {
+    if (this.suppress || !this.doc || Date.now() < (this.scroller._noClick || 0)) return;
+    const p = this.pageAt(e.clientX, e.clientY); if (!p) return;
+    const pt = this.toPage(p, e.clientX, e.clientY);
+    if (this.placing) { this.placeAt(p, pt); return; }
+    const hit = this.hitMark(p, pt); if (hit) { pdfPane.show(docs[hit.doc]); pdfPane.focusLink(hit); }
+  }
+
+  begin(p, x, y, src, tid) {
+    penDown = true;
+    const mode = this.placing ? 'place' : this.tool.mode;
+    const s = this.stroke = { p, src, tid, mode, pts: [this.toPage(p, x, y)], moved: false, sx: x, sy: y,
+      c: this.tool.color, sz: SIZES[this.tool.size], erased: [] };
+    if (mode === 'erase') this.eraseAt(s, s.pts[0], s.pts[0]);
+  }
+  extend(x, y) {
+    const s = this.stroke; if (!s) return;
+    if (!s.moved) { if (Math.hypot(x - s.sx, y - s.sy) < 2.5) return; s.moved = true; }
+    if (s.mode === 'place') return;
+    const pt = this.toPage(s.p, x, y), last = s.pts[s.pts.length - 1];
+    if (Math.hypot(pt[0] - last[0], pt[1] - last[1]) < 0.0012) return;
+    s.pts.push(pt);
+    if (s.mode === 'erase') this.eraseAt(s, pt, last); else this.liveSeg(s);
+  }
+  liveSeg(s) {
+    const p = s.p, ctx = p.ctx, q = s.pts, n = q.length, w = p.w; if (!ctx || n < 2) return;
+    ctx.strokeStyle = s.c; ctx.lineWidth = s.sz * w; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    const mid = (a, b) => [(a[0] + b[0]) / 2 * w, (a[1] + b[1]) / 2 * w];
+    ctx.beginPath();
+    if (n === 2) { ctx.moveTo(q[0][0] * w, q[0][1] * w); const m = mid(q[0], q[1]); ctx.lineTo(m[0], m[1]); }
+    else { const a = mid(q[n - 3], q[n - 2]), b = mid(q[n - 2], q[n - 1]); ctx.moveTo(a[0], a[1]); ctx.quadraticCurveTo(q[n - 2][0] * w, q[n - 2][1] * w, b[0], b[1]); }
+    ctx.stroke();
+  }
+  eraseAt(s, pt, prev) {
+    let any = false;
+    for (const st of this.nb.strokes) {
+      if (st.del || st.p !== s.p.n) continue;
+      if (st.pts.some(q => segDist(prev, pt, q) < 0.018)) { st.del = true; st.ts = Date.now(); s.erased.push(st.id); any = true; }
+    }
+    if (any) this.redrawPage(s.p);
+  }
+  finish() {
+    const s = this.stroke; if (!s) return; this.stroke = null; penDown = false;
+    this.suppress = true; setTimeout(() => { this.suppress = false; }, 350);
+    if (s.mode === 'place') { if (!s.moved) this.placeAt(s.p, s.pts[0]); return; }
+    if (s.mode === 'erase') { if (s.erased.length) { this.undoStack.push({ t: 'del', ids: s.erased }); this.touch(); } return; }
+    if (!s.moved) {
+      const hit = this.hitMark(s.p, s.pts[0]);
+      if (hit) { pdfPane.show(docs[hit.doc]); pdfPane.focusLink(hit); return; }
+    }
+    this.ensureStored();
+    const st = { id: uid(), p: s.p.n, c: s.c, w: s.sz, ts: Date.now(), pts: s.pts.map(q => [+q[0].toFixed(4), +q[1].toFixed(4)]) };
+    this.nb.strokes.push(st); this.undoStack.push({ t: 'add', id: st.id });
+    this.redrawPage(s.p);
+    this.touch();
+    if (s.p.n === this.nb.pages) this.addPage();
+  }
+  doUndo() {
+    const u = this.undoStack.pop(); if (!u) { toast('Nothing to undo'); return; }
+    const ids = u.t === 'add' ? [u.id] : u.ids, del = u.t === 'add';
+    for (const st of this.nb.strokes) if (ids.includes(st.id)) { st.del = del; st.ts = Date.now(); }
+    this.touch(); this.pages.forEach(p => this.redrawPage(p));
+  }
+  placeAt(p, pt) {
+    if (!pending) { this.setPlacing(false); return; }
+    addLink(pending, { page: p.n, x: +pt[0].toFixed(4), y: +pt[1].toFixed(4) });
+  }
+
+  getPos() {
+    const y = this.scroller.scrollTop;
+    for (const p of this.pages) if (p.el.offsetTop + p.h > y) return { i: p.n - 1, f: (y - p.el.offsetTop) / p.h };
+    return { i: 0, f: 0 };
+  }
+  relayout() {
+    if (!this.doc) return;
+    const pos = this.getPos(); this.build();
+    const p = this.pages[pos.i]; if (p) this.scroller.scrollTop = p.el.offsetTop + pos.f * p.h;
+  }
+  setZoom(z) { this.zoom = Math.min(2.5, Math.max(0.6, z)); this.relayout(); }
+}
+
+/* ---------- marking on the PDF -> pending link -> tap the notebook ---------- */
+function onPdfChanged(doc) {
+  if (pending && pending.doc !== doc.key) cancelPending();
+  notebook.setDoc(doc);
+}
+function markFromStroke(s) {
+  const q = s.pts.map(a => [+a[0].toFixed(4), +a[1].toFixed(4)]), now = Date.now(), d = pdfPane.doc;
+  if (pending && pending.doc === d.key && pending.page === s.p.n && now - pending.ts < 2000) { pending.ink.push(q); pending.ts = now; }
+  else pending = { doc: d.key, name: d.name, page: s.p.n, ink: [q], ts: now };
+  pdfPane.redraw(); pdfPane.cancelBtn.hidden = false; notebook.setPlacing(true);
+}
+function cancelPending() {
+  pending = null;
+  if (notebook) notebook.setPlacing(false);
+  if (pdfPane) { pdfPane.redraw(); pdfPane.cancelBtn.hidden = true; }
+}
+function addLink(a, nb) {
+  state.links.push({ id: uid(), doc: a.doc, name: a.name, page: a.page, ink: a.ink, nb,
+    hue: (activeLinks().length * 53 + 20) % 360, ts: Date.now() });
+  pending = null; notebook.setPlacing(false); pdfPane.cancelBtn.hidden = true;
+  linksChanged();
+}
+function delLink(l) { l.del = true; l.ts = Date.now(); linksChanged(); renderLinks(); }
+function linksChanged(save = true) {
+  $('#linkCount').textContent = activeLinks().length;
+  pdfPane.redraw(); notebook.renderMarks();
+  if (save) { store.set('lp.links', state.links); dirty = true; scheduleSync(); }
+}
+
+/* ---------- links list ---------- */
+function renderLinks() {
+  const q = $('#linkQ').value.toLowerCase(), ul = $('#linkUl');
+  ul.replaceChildren();
+  const list = activeLinks().filter(l => !q || ((l.text || '') + l.name).toLowerCase().includes(q)).sort((x, y) => y.ts - x.ts);
+  if (!list.length) ul.append(h('li', { class: 'muted' }, activeLinks().length ? 'No matches.' : 'No links yet. Draw on the PDF with the Pencil, then tap a spot in the notebook.'));
+  for (const l of list) ul.append(h('li', {},
+    h('div', { class: 'end' }, h('i', { style: `background:hsl(${l.hue} 90% 60%)` }),
+      h('div', {}, h('b', {}, `${l.name} · p.${l.page}`), h('span', {}, l.text ? `“${trunc(l.text, 110)}”` : (l.ink && l.ink.length === 1 && l.ink[0].length === 1 ? 'Point mark' : 'Drawn mark')), h('span', {}, `Notebook page ${l.nb.page}`))),
+    h('div', { class: 'row' }, h('button', { onclick: () => { $('#dlgLinks').close(); openLink(l); } }, 'Open'), h('button', { class: 'danger', onclick: () => delLink(l) }, 'Delete'))));
+}
+function openLink(l) {
+  const go = () => { pdfPane.show(docs[l.doc]); pdfPane.focusLink(l); notebook.goToLink(l); };
+  if (docs[l.doc]) return go();
+  if (l.doc.startsWith('drive:')) {
+    ensureToken().then(() => openDrive({ id: l.doc.slice(6), name: l.name })).then(() => docs[l.doc] && go()).catch(err => toast(err.message));
+  } else { toast(`Select “${l.name}” to continue`); pickLocal({ doc: l.doc, name: l.name, link: l }); }
+}
+$('#btnLinks').onclick = () => { renderLinks(); $('#dlgLinks').showModal(); };
+$('#linkQ').oninput = renderLinks;
+
+/* ---------- opening files ---------- */
+function pickLocal(expect = null) { fileTarget = { expect }; $('#fileInput').click(); }
+$('#fileInput').onchange = async ev => {
+  const f = ev.target.files[0]; ev.target.value = ''; if (!f || !fileTarget) return;
+  const { expect } = fileTarget; fileTarget = null;
+  const key = `local:${f.name}:${f.size}`;
+  if (expect && expect.doc !== key) { toast(`That is not “${expect.name}”. Pick the original file.`, 4000); return; }
+  try {
+    toast('Opening…', 20000);
+    await loadDoc(key, f.name, new Uint8Array(await f.arrayBuffer()));
+    pdfPane.show(docs[key]);
+    if (expect?.link) { pdfPane.focusLink(expect.link); notebook.goToLink(expect.link); }
+    toast('Opened', 900);
+  } catch (e) { console.error(e); toast('Could not open that PDF'); }
+};
+async function openDrive(f) {
+  const key = 'drive:' + f.id;
+  try {
+    if (!docs[key]) {
+      toast('Downloading…', 30000);
+      const r = await dfetch(`https://www.googleapis.com/drive/v3/files/${f.id}?alt=media&supportsAllDrives=true`);
+      await loadDoc(key, f.name, new Uint8Array(await r.arrayBuffer()));
+    }
+    pdfPane.show(docs[key]); toast('Opened', 900);
+  } catch (e) { console.error(e); toast(e.message || 'Could not open that PDF'); }
+}
+
+function openDialog() { refreshDriveUI(); $('#dlgOpen').showModal(); if (tokenValid()) loadDriveList(); }
+function refreshDriveUI() { const on = tokenValid(); $('#driveConnect').hidden = on; $('#driveList').hidden = !on; }
+$('#openLocal').onclick = () => { $('#dlgOpen').close(); pickLocal(); };
+$('#driveConnect').onclick = async () => {
+  try { await ensureToken(); refreshDriveUI(); loadDriveList(); syncNow(); } catch (e) { toast(e.message); }
+};
+async function loadDriveList() {
+  const ul = $('#driveUl'), q = $('#driveQ').value.trim();
+  ul.replaceChildren(h('li', { class: 'muted' }, 'Loading…'));
+  try {
+    let query = "mimeType='application/pdf' and trashed=false";
+    if (q) query += ` and name contains '${q.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+    const r = await dfetch('https://www.googleapis.com/drive/v3/files?' + new URLSearchParams({
+      q: query, fields: 'files(id,name,modifiedTime)', orderBy: 'modifiedTime desc', pageSize: '50',
+      supportsAllDrives: 'true', includeItemsFromAllDrives: 'true' }));
+    const files = (await r.json()).files || [];
+    ul.replaceChildren();
+    if (!files.length) ul.append(h('li', { class: 'muted' }, 'No PDFs found.'));
+    for (const f of files) ul.append(h('li', { class: 'pick', onclick: () => { $('#dlgOpen').close(); openDrive(f); } },
+      h('b', {}, f.name), h('span', { class: 'muted' }, new Date(f.modifiedTime).toLocaleDateString())));
+  } catch (e) { ul.replaceChildren(h('li', { class: 'muted' }, e.message)); refreshDriveUI(); }
+}
+$('#driveQ').oninput = debounce(loadDriveList, 350);
+
+/* ---------- Google auth + Drive ---------- */
+function ensureToken() {
+  return new Promise((res, rej) => {
+    if (tokenValid()) return res(token.t);
+    if (!cfg.clientId) { openSettings(); return rej(new Error('Add your Google client ID first')); }
+    if (!window.google?.accounts?.oauth2) return rej(new Error('Google sign-in has not loaded yet. Check your connection.'));
+    google.accounts.oauth2.initTokenClient({
+      client_id: cfg.clientId, scope: SCOPE,
+      callback: r => {
+        if (r.error) return rej(new Error('Sign-in failed: ' + r.error));
+        token = { t: r.access_token, exp: Date.now() + (r.expires_in || 3600) * 1000 };
+        store.set('lp.tok', token); setStatus('ok', 'Synced'); res(token.t);
+      },
+      error_callback: e => rej(new Error('Sign-in cancelled' + (e?.type ? ` (${e.type})` : '')))
+    }).requestAccessToken({ prompt: '' });
+  });
+}
+async function dfetch(url, opts = {}) {
+  if (!tokenValid()) { setStatus('err', 'Reconnect'); throw new Error('Not connected. Tap Drive to reconnect.'); }
+  const r = await fetch(url, { ...opts, headers: { ...(opts.headers || {}), Authorization: 'Bearer ' + token.t } });
+  if (r.status === 401) { token = null; store.del('lp.tok'); setStatus('err', 'Reconnect'); throw new Error('Session expired. Tap Drive to reconnect.'); }
+  if (!r.ok) throw new Error('Drive error ' + r.status);
+  return r;
+}
+function setStatus(kind, text) { $('#syncDot').className = kind; $('#syncTxt').textContent = text; }
+function initStatus() {
+  if (!cfg.clientId) setStatus('', 'Set up Drive');
+  else if (tokenValid()) setStatus('ok', 'Synced');
+  else setStatus('err', 'Connect');
+}
+
+const canon = a => JSON.stringify([...a].sort((x, y) => x.id < y.id ? -1 : 1));
+function mergeLinks(local, remote) {
+  const m = new Map();
+  [...remote, ...local].forEach(l => { if (!l.nb) return; const o = m.get(l.id); if (!o || l.ts > o.ts) m.set(l.id, l); });
+  return [...m.values()];
+}
+const nbSig = o => Object.keys(o).sort().map(k => {
+  const n = o[k]; let mx = 0; for (const s of n.strokes) if (s.ts > mx) mx = s.ts;
+  return `${k}|${n.pages}|${n.paper}|${n.strokes.length}|${mx}|${n.ts || 0}`;
+}).join(';');
+function mergeNotebooks(local, remote) {
+  const out = {};
+  for (const k of new Set([...Object.keys(local), ...Object.keys(remote)])) {
+    const a = local[k], b = remote[k];
+    if (!a || !b) { out[k] = a || b; continue; }
+    const m = new Map();
+    [...b.strokes, ...a.strokes].forEach(s => { const o = m.get(s.id); if (!o || s.ts > o.ts) m.set(s.id, s); });
+    const newer = (a.ts || 0) >= (b.ts || 0) ? a : b;
+    out[k] = { pages: Math.max(a.pages, b.pages), paper: newer.paper, ts: Math.max(a.ts || 0, b.ts || 0), strokes: [...m.values()] };
+  }
+  return out;
+}
+const saveNbNow = () => idb.set('nbs', notebooks).catch(() => toast('Could not save notes on this device'));
+const saveNbSoon = debounce(saveNbNow, 700);
+
+async function findLinksFile() {
+  if (fileId) return fileId;
+  const r = await dfetch('https://www.googleapis.com/drive/v3/files?' + new URLSearchParams({
+    spaces: 'appDataFolder', q: `name='${LINKS_FILE}'`, fields: 'files(id)' }));
+  return (fileId = (await r.json()).files?.[0]?.id || null);
+}
+async function syncNow(manual = false) {
+  if (syncing) return;
+  let wasDirty = dirty;
+  try {
+    if (manual) await ensureToken();
+    else if (!tokenValid()) { if (cfg.clientId) setStatus('err', 'Reconnect'); return; }
+    syncing = true; setStatus('busy', 'Syncing…');
+    const fid = await findLinksFile();
+    let remote = [], remoteNb = {};
+    if (fid) {
+      const r = await dfetch(`https://www.googleapis.com/drive/v3/files/${fid}?alt=media`);
+      const j = await r.json().catch(() => ({}));
+      remote = j.links || []; remoteNb = j.notebooks || {};
+    }
+    const merged = mergeLinks(state.links, remote), mergedNb = mergeNotebooks(notebooks, remoteNb);
+    const changedLinks = canon(merged) !== canon(state.links), changedNb = nbSig(mergedNb) !== nbSig(notebooks);
+    state.links = merged; notebooks = mergedNb; store.set('lp.links', merged);
+    notebook.rebind();
+    if (changedNb) { saveNbNow(); notebook.refresh(); }
+    if (changedLinks) linksChanged(false);
+    if (!fid || dirty || canon(merged) !== canon(remote) || nbSig(mergedNb) !== nbSig(remoteNb)) {
+      dirty = false; wasDirty = true;
+      const body = JSON.stringify({ v: 2, links: merged, notebooks: mergedNb });
+      if (!fid) {
+        const b = 'lp' + Date.now();
+        const mp = `--${b}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify({ name: LINKS_FILE, parents: ['appDataFolder'] })}\r\n--${b}\r\nContent-Type: application/json\r\n\r\n${body}\r\n--${b}--`;
+        const r = await dfetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', { method: 'POST', headers: { 'Content-Type': `multipart/related; boundary=${b}` }, body: mp });
+        fileId = (await r.json()).id;
+      } else {
+        await dfetch(`https://www.googleapis.com/upload/drive/v3/files/${fid}?uploadType=media`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body });
+      }
+      wasDirty = false;
+    }
+    setStatus('ok', 'Synced ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+  } catch (e) {
+    console.error(e); if (wasDirty) dirty = true; setStatus('err', 'Sync failed'); if (manual) toast(e.message);
+  } finally { syncing = false; if (dirty && tokenValid()) scheduleSync(); }
+}
+const scheduleSync = debounce(() => syncNow(false), 2500);
+$('#btnSync').onclick = () => { if (!cfg.clientId) openSettings(); else syncNow(true); };
+document.addEventListener('visibilitychange', () => { if (document.hidden) saveNbNow(); else syncNow(false); });
+setInterval(() => { if (!document.hidden) syncNow(false); }, 60000);
+
+/* ---------- settings ---------- */
+function openSettings() { $('#cid').value = cfg.clientId || ''; $('#origin').textContent = location.origin; if (!$('#dlgSettings').open) $('#dlgSettings').showModal(); }
+$('#btnSettings').onclick = openSettings;
+$('#saveCid').onclick = () => { cfg.clientId = $('#cid').value.trim(); store.set('lp.cfg', cfg); initStatus(); toast('Saved. Tap Drive to connect.'); };
+$('#signOut').onclick = () => {
+  if (token && window.google?.accounts?.oauth2) try { google.accounts.oauth2.revoke(token.t); } catch {}
+  token = null; store.del('lp.tok'); fileId = null; initStatus(); toast('Disconnected');
+};
+$('#exportBtn').onclick = () => {
+  const a = h('a', { href: URL.createObjectURL(new Blob([JSON.stringify({ v: 2, links: state.links, notebooks }, null, 2)], { type: 'application/json' })), download: 'linkpdf-backup.json' });
+  a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+};
+
+document.querySelectorAll('dialog').forEach(d => {
+  d.addEventListener('click', e => { if (e.target === d) d.close(); });
+  d.querySelectorAll('.close').forEach(b => b.onclick = () => d.close());
+});
+
+$('#btnTouch').onclick = () => {
+  touchDraw = !touchDraw;
+  $('#btnTouch').classList.toggle('on', touchDraw);
+  $('#btnTouch').textContent = touchDraw ? 'Touch: draw' : 'Touch: scroll';
+  toast(touchDraw ? 'Touch now draws. Scroll with two fingers. Tap again to go back.' : 'Touch scrolls again', 3500);
+};
+
+/* ---------- boot ---------- */
+(async () => {
+  try { notebooks = (await idb.get('nbs')) || {}; } catch { notebooks = {}; toast('Notes cannot be saved in this browser mode'); }
+  for (const n of Object.values(notebooks)) for (const s of n.strokes) if (s.del && s.pts.length && Date.now() - s.ts > 7 * 864e5) s.pts = [];
+  pdfPane = new PdfPane(); notebook = new Notebook();
+  $('#panes').append(pdfPane.root, notebook.root);
+  window.addEventListener('resize', debounce(() => {
+    if (pdfPane.doc && Math.abs(pdfPane.scroller.clientWidth - pdfPane.lastW) > 12) pdfPane.relayout();
+    if (notebook.doc && Math.abs(notebook.scroller.clientWidth - notebook.lastW) > 12) notebook.relayout();
+  }, 250));
+  $('#linkCount').textContent = activeLinks().length;
+  initStatus();
+  if (tokenValid()) syncNow(false);
+})();
+
+if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {});
+</script>
+</body>
+</html>
